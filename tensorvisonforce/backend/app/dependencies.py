@@ -114,5 +114,5 @@ class RequireRole:
 
 
 require_citizen = RequireRole(UserRole.CITIZEN)
-require_worker = RequireRole(UserRole.WORKER, UserRole.ADMIN)
-require_admin = RequireRole(UserRole.ADMIN)
+require_worker  = RequireRole(UserRole.WORKER, UserRole.FIELD_WORKER, UserRole.ADMIN)
+require_admin   = RequireRole(UserRole.ADMIN)

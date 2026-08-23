@@ -96,12 +96,13 @@ def sample_complaint_row():
     now = datetime.now(timezone.utc).isoformat()
     return {
         "id": str(uuid.uuid4()),
-        "complaint_number": "CMP-20260823-A1B2",
+        "complaint_code": "CMP-2026-000001",
+        "complaint_number": "CMP-2026-000001",  # alias kept for backward compat
         "title": "Pothole on Main Street",
         "description": "There is a large dangerous pothole on Main Street near the school",
         "category": "pothole",
-        "status": "submitted",
-        "priority": "high",
+        "status": "SUBMITTED",
+        "priority": "HIGH",
         "latitude": 13.0827,
         "longitude": 80.2707,
         "address": "Main Street",
@@ -109,7 +110,8 @@ def sample_complaint_row():
         "department_id": None,
         "assigned_worker_id": None,
         "duplicate_of": None,
-        "sla_due_at": now,
+        "deadline": now,
+        "sla_due_at": now,   # alias kept for backward compat
         "created_at": now,
         "updated_at": now,
     }

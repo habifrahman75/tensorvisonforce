@@ -1,11 +1,11 @@
 """
-Image quality checks for complaint photo uploads.
+Image quality analysis for complaint photo uploads.
 
-Sharpness is estimated with a Laplacian-variance heuristic (implemented
-by hand with numpy so we don't need an OpenCV dependency): sharp images
-have high-frequency edge content, which shows up as high variance after
-a Laplacian (edge-detection) kernel is applied. Blurry images look
-"smoothed" and produce low variance.
+Sharpness is estimated via Laplacian-variance (no OpenCV needed — pure numpy).
+Sharp images have high-frequency edge content → high variance after the
+Laplacian kernel; blurry images are smoothed → low variance.
+
+Brightness is estimated as the mean pixel intensity on the grayscale image.
 """
 import numpy as np
 from PIL import Image
@@ -31,15 +31,35 @@ def _convolve2d(gray: np.ndarray, kernel: np.ndarray) -> np.ndarray:
 
 
 def compute_sharpness_score(image: Image.Image) -> float:
-    """Higher = sharper. Laplacian variance of the grayscale image."""
+    """Higher = sharper.  Laplacian variance of the grayscale image."""
     gray = np.asarray(image.convert("L"), dtype=np.float32)
-    # Downscale very large images for speed; sharpness signal is preserved.
     if gray.shape[0] > 800 or gray.shape[1] > 800:
         img_small = image.convert("L")
         img_small.thumbnail((800, 800))
         gray = np.asarray(img_small, dtype=np.float32)
-    laplacian = _convolve2d(gray, _LAPLACIAN_KERNEL)
-    return float(laplacian.var())
+    return float(_convolve2d(gray, _LAPLACIAN_KERNEL).var())
+
+
+def compute_brightness(image: Image.Image) -> float:
+    """Mean pixel intensity on [0, 255] scale."""
+    gray = np.asarray(image.convert("L"), dtype=np.float32)
+    return float(gray.mean())
+
+
+def _quality_status(quality_score: float, issues: list[str]) -> tuple[str, str]:
+    """Returns (quality_status, recommendation)."""
+    if not issues:
+        return "good", "Image quality is acceptable for processing."
+    if quality_score >= 0.4:
+        return "acceptable", (
+            "Image quality is marginal. "
+            "Consider retaking for better AI analysis accuracy."
+        )
+    return "poor", (
+        "Image quality is poor. "
+        "Please retake the photo in better lighting and hold the camera steady. "
+        "The enhanced version will be used for processing."
+    )
 
 
 def assess_image_quality(image: Image.Image, settings: Settings) -> ImageQualityResult:
@@ -49,28 +69,44 @@ def assess_image_quality(image: Image.Image, settings: Settings) -> ImageQuality
     resolution_ok = min(width, height) >= settings.min_image_resolution
     if not resolution_ok:
         issues.append(
-            f"Resolution too low ({width}x{height}); minimum side is "
-            f"{settings.min_image_resolution}px"
+            f"Resolution too low ({width}×{height}); "
+            f"minimum short side is {settings.min_image_resolution}px"
         )
 
     sharpness = compute_sharpness_score(image)
-    is_blurry = sharpness < settings.blur_threshold
+    brightness = compute_brightness(image)
+    is_blurry  = sharpness < settings.blur_threshold
     if is_blurry:
         issues.append(f"Image appears blurry (sharpness={sharpness:.1f})")
 
-    # Combine into a single 0-1 quality score.
-    sharpness_component = min(sharpness / (settings.blur_threshold * 3), 1.0)
+    if brightness < 40:
+        issues.append(f"Image is too dark (brightness={brightness:.1f})")
+    elif brightness > 220:
+        issues.append(f"Image is overexposed (brightness={brightness:.1f})")
+
+    # Composite quality score (0-1)
+    sharpness_component  = min(sharpness / (settings.blur_threshold * 3), 1.0)
     resolution_component = 1.0 if resolution_ok else 0.4
-    quality_score = round(0.7 * sharpness_component + 0.3 * resolution_component, 3)
+    quality_score = round(
+        0.7 * sharpness_component + 0.3 * resolution_component,
+        3,
+    )
+    quality_score = max(0.0, min(quality_score, 1.0))
+
+    status, recommendation = _quality_status(quality_score, issues)
 
     return ImageQualityResult(
-        is_blurry=is_blurry,
-        sharpness_score=round(sharpness, 2),
-        resolution_ok=resolution_ok,
-        width=width,
-        height=height,
-        quality_score=max(0.0, min(quality_score, 1.0)),
-        issues=issues,
+        is_blurry        = is_blurry,
+        sharpness_score  = round(sharpness, 2),
+        resolution_ok    = resolution_ok,
+        width            = width,
+        height           = height,
+        quality_score    = quality_score,
+        quality_status   = status,
+        recommendation   = recommendation,
+        brightness       = round(brightness, 2),
+        blur_score       = round(sharpness, 2),
+        issues           = issues,
     )
 
 

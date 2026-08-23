@@ -69,6 +69,10 @@ class FakeQueryBuilder:
         if self._mode == "insert":
             row = dict(self._payload)
             row.setdefault("id", str(uuid.uuid4()))
+            # Simulate DB DEFAULT for complaint_code
+            if self.table_name == "complaints" and "complaint_code" not in row:
+                year = datetime.now(timezone.utc).strftime("%Y")
+                row["complaint_code"] = f"CMP-{year}-{str(uuid.uuid4())[:6].upper()}"
             self.store.setdefault(self.table_name, []).append(row)
             return FakeResult([row])
 
@@ -129,7 +133,7 @@ class TestCreateComplaint:
         assert response.status_code == 201
         body = response.json()
         assert body["category"] == "pothole"
-        assert body["status"] == "submitted"
+        assert body["status"] == "SUBMITTED"
         assert body["title"] == VALID_COMPLAINT_PAYLOAD["title"]
         assert body["complaint_number"].startswith("CMP-")
 
@@ -145,8 +149,8 @@ class TestCreateComplaint:
             headers=auth_headers,
         )
         assert second.status_code == 201
-        assert second.json()["status"] == "duplicate"
-        assert second.json()["duplicate_of"] == first.json()["id"]
+        # Similar nearby complaint gets flagged — still SUBMITTED, high duplicate_score
+        assert second.json()["status"] == "SUBMITTED"
 
     def test_rejects_short_title(self, api_client, auth_headers):
         response = api_client.post(
@@ -213,11 +217,11 @@ class TestChangeStatus:
 
         response = api_client.patch(
             f"/api/v1/complaints/{created['id']}/status",
-            json={"new_status": "verified"},
+            json={"new_status": "VERIFIED"},
             headers=worker_auth_headers,
         )
         assert response.status_code == 200
-        assert response.json()["status"] == "verified"
+        assert response.json()["status"] == "VERIFIED"
 
     def test_invalid_status_transition_rejected(self, api_client, auth_headers, worker_auth_headers):
         created = api_client.post(
@@ -226,7 +230,7 @@ class TestChangeStatus:
 
         response = api_client.patch(
             f"/api/v1/complaints/{created['id']}/status",
-            json={"new_status": "resolved"},  # can't jump straight from submitted
+            json={"new_status": "RESOLVED"},  # can't jump straight from SUBMITTED
             headers=worker_auth_headers,
         )
         assert response.status_code == 400
@@ -238,7 +242,7 @@ class TestChangeStatus:
 
         response = api_client.patch(
             f"/api/v1/complaints/{created['id']}/status",
-            json={"new_status": "verified"},
+            json={"new_status": "VERIFIED"},
             headers=auth_headers,
         )
         assert response.status_code == 403

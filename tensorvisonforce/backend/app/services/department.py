@@ -46,3 +46,22 @@ def resolve_department(
     # No zone matched geographically (or no zones defined) -- fall back to
     # the first eligible department so the complaint is still routed.
     return next(iter(eligible_department_ids))
+
+
+# Category → canonical department name (matches the names seeded in departments table)
+_CATEGORY_TO_DEPARTMENT: dict[str, str] = {
+    "pothole":       "Roads Department",
+    "garbage":       "Sanitation Department",
+    "streetlight":   "Electrical Department",
+    "drainage":      "Drainage Department",
+    "water_leakage": "Water Department",
+    "other":         "General Civic Department",
+}
+
+
+def department_name_for_category(category: str) -> str:
+    """
+    Return the department name responsible for this complaint category.
+    Falls back to 'General Civic Department' for unknown categories.
+    """
+    return _CATEGORY_TO_DEPARTMENT.get(category.lower(), "General Civic Department")

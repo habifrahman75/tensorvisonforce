@@ -1,3 +1,7 @@
+"""
+Priority service tests — aligned with 3-tier Priority enum (LOW/MEDIUM/HIGH)
+and updated score thresholds (>=70 HIGH, >=40 MEDIUM, else LOW).
+"""
 from app.schemas.ai import PriorityRequest
 from app.schemas.complaints import ComplaintCategory, Priority
 from app.services.priority import compute_priority, score_to_priority
@@ -5,14 +9,12 @@ from app.services.priority import compute_priority, score_to_priority
 
 class TestScoreToPriority:
     def test_boundaries(self):
-        assert score_to_priority(0) == Priority.LOW
-        assert score_to_priority(34) == Priority.LOW
-        assert score_to_priority(35) == Priority.MEDIUM
-        assert score_to_priority(54) == Priority.MEDIUM
-        assert score_to_priority(55) == Priority.HIGH
-        assert score_to_priority(74) == Priority.HIGH
-        assert score_to_priority(75) == Priority.CRITICAL
-        assert score_to_priority(100) == Priority.CRITICAL
+        assert score_to_priority(0)   == Priority.LOW
+        assert score_to_priority(39)  == Priority.LOW
+        assert score_to_priority(40)  == Priority.MEDIUM
+        assert score_to_priority(69)  == Priority.MEDIUM
+        assert score_to_priority(70)  == Priority.HIGH
+        assert score_to_priority(100) == Priority.HIGH
 
 
 class TestComputePriority:
@@ -28,33 +30,44 @@ class TestComputePriority:
 
     def test_danger_keywords_increase_score(self):
         low_urgency = compute_priority(
-            PriorityRequest(category=ComplaintCategory.POTHOLE, description="There is a pothole on the road")
+            PriorityRequest(
+                category=ComplaintCategory.POTHOLE,
+                description="There is a pothole on the road",
+            )
         )
         high_urgency = compute_priority(
             PriorityRequest(
                 category=ComplaintCategory.POTHOLE,
-                description="There is a dangerous pothole that caused an accident near the school",
+                description=(
+                    "There is a dangerous pothole that caused an accident near the school"
+                ),
             )
         )
         assert high_urgency.score > low_urgency.score
 
     def test_duplicate_count_increases_score_but_is_capped(self):
         base = compute_priority(
-            PriorityRequest(category=ComplaintCategory.GARBAGE, description="Garbage is piling up", duplicate_count=0)
+            PriorityRequest(
+                category=ComplaintCategory.GARBAGE,
+                description="Garbage is piling up",
+                duplicate_count=0,
+            )
         )
         many_dupes = compute_priority(
             PriorityRequest(
-                category=ComplaintCategory.GARBAGE, description="Garbage is piling up", duplicate_count=50
+                category=ComplaintCategory.GARBAGE,
+                description="Garbage is piling up",
+                duplicate_count=50,
             )
         )
         capped_dupes = compute_priority(
             PriorityRequest(
-                category=ComplaintCategory.GARBAGE, description="Garbage is piling up", duplicate_count=5
+                category=ComplaintCategory.GARBAGE,
+                description="Garbage is piling up",
+                duplicate_count=5,
             )
         )
         assert many_dupes.score > base.score
-        # Duplicate bump caps at 20, so 50 reports shouldn't outscore what
-        # 5 reports already achieves once the cap kicks in.
         assert many_dupes.score == capped_dupes.score
 
     def test_low_image_quality_reduces_score(self):
@@ -78,7 +91,9 @@ class TestComputePriority:
         result = compute_priority(
             PriorityRequest(
                 category=ComplaintCategory.WATER_LEAKAGE,
-                description="fire danger accident injury hazard collapse flood sewage electric",
+                description=(
+                    "fire danger accident injury hazard collapse flood sewage electric"
+                ),
                 duplicate_count=100,
             )
         )
@@ -86,9 +101,25 @@ class TestComputePriority:
 
     def test_water_leakage_outranks_streetlight_all_else_equal(self):
         water = compute_priority(
-            PriorityRequest(category=ComplaintCategory.WATER_LEAKAGE, description="Water leaking from pipe")
+            PriorityRequest(
+                category=ComplaintCategory.WATER_LEAKAGE,
+                description="Water leaking from pipe",
+            )
         )
         streetlight = compute_priority(
-            PriorityRequest(category=ComplaintCategory.STREETLIGHT, description="Streetlight is off")
+            PriorityRequest(
+                category=ComplaintCategory.STREETLIGHT,
+                description="Streetlight is off",
+            )
         )
         assert water.score > streetlight.score
+
+    def test_high_priority_category_with_danger_keywords_yields_high(self):
+        result = compute_priority(
+            PriorityRequest(
+                category=ComplaintCategory.WATER_LEAKAGE,
+                description="Dangerous flood near the hospital causing accident",
+                duplicate_count=5,
+            )
+        )
+        assert result.priority == Priority.HIGH
